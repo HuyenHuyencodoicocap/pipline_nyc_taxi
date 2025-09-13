@@ -1,4 +1,4 @@
-# ------------------------------- Các phần đã làm được trong dự án-------------------------------
+#                                 Các phần đã làm được trong dự án
 Data Ingestion & CDC (Change Data Capture):
 Dữ liệu ban đầu về các chuyến taxi NYC được nhập vào cơ sở dữ liệu PostgreSQL. Dự án sử dụng Kafka Connect với Debezium connector để triển khai CDC, cho phép theo dõi và ghi nhận các thay đổi (inserts, updates, deletes) trong thời gian thực. Các thay đổi này sau đó được đẩy lên các topic tương ứng trên Kafka, phục vụ cho các quy trình xử lý downstream. File data_generator.py được sử dụng để tự động tạo ra các thay đổi giả lập ( insert, updates, deletes).
 Data Lake & Storage:
@@ -12,7 +12,7 @@ gold_zone_schema.sql: Định nghĩa star schema cho Gold Zone
 check_wal.sql: Một script kiểm tra log WAL (Write-Ahead Logging) của PostgreSQL, cần thiết cho quá trình CDC.
 clickhouse.sql: Mô tả schema hoặc các truy vấn liên quan đến ClickHouse, một cơ sở dữ liệu cột có thể được sử dụng cho các tác vụ phân tích OLAP (Online Analytical Processing).
 
-# ----------------------------- Các lệnh theo thứ tự để chạy dự án-----------------------------
+#                         Các lệnh theo thứ tự để chạy dự án
 
 # Lệnh khởi động dự án
 docker compose up -d
