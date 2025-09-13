@@ -1,0 +1,294 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - my-de-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    networks:
+      - my-de-network
+
+  postgres:
+    image: debezium/postgres:14
+    container_name: postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: nyc_taxi
+      POSTGRES_HOST_AUTH_METHOD: trust
+    ports:
+      - "5432:5432"
+    command: >
+      postgres -c wal_level=logical
+               -c max_wal_senders=5
+               -c max_replication_slots=5
+    volumes:
+      # 1) Lưu bền dữ liệu Postgres
+      - ./data/Postgres:/var/lib/postgresql/data
+      # 2) Mount folder SQL trong dự án vào container (read-only)
+      - ./src/Sql:/sql:ro
+    networks:
+      - my-de-network
+
+  connect:
+    image: debezium/connect:2.5
+    container_name: kafka_connect
+    depends_on:
+      - kafka
+      - postgres
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      KEY_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+      KEY_CONVERTER_SCHEMAS_ENABLE: "false"
+      DEBEZIUM_LOG_LEVEL: DEBUG
+      PLUGIN_PATH: "/usr/share/java,/kafka/connect,/usr/share/confluent-hub-components/debezium-transforms"
+    volumes:
+      - ./src/Plugins/clickhouse-kafka-sink-connector:/kafka/connect/clickhouse-kafka-sink-connector
+      - ./src/Plugins/debezium-tranform:/usr/share/confluent-hub-components/debezium-transforms
+    networks:
+      - my-de-network
+
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.5.0
+    container_name: schema_registry
+    depends_on:
+      - kafka
+    ports:
+      - "8081:8081"
+    environment:
+      - SCHEMA_REGISTRY_HOST_NAME=schema-registry
+      - SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS=kafka:9092
+      - SCHEMA_REGISTRY_LISTENERS=http://0.0.0.0:8081
+    networks:
+      - my-de-network
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka_ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+    networks:
+      - my-de-network
+  clickhouse:
+    image: clickhouse/clickhouse-server:23.8
+    user: "0:0" # <--- THÊM DÒNG NÀY
+    container_name: clickhouse
+    ports:
+      - "8123:8123"
+      - "9002:9000"
+    environment:
+      CLICKHOUSE_DB: nyc_taxi
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+      - ./src/Sql/clickhouse.sql:/docker-entrypoint-initdb.d/clickhouse.sql
+    networks:
+      - my-de-network
+  data-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: data-generator
+    depends_on:
+      - postgres
+    restart: unless-stopped
+  # spark:
+  #   image: bitnami/spark:3.3.2
+  #   container_name: spark
+  #   depends_on:
+  #     - kafka
+  #     - zookeeper
+  #     - postgres
+  #     - clickhouse
+  #   ports:
+  #     - "4040:4040"
+  #   environment:
+  #     - SPARK_MASTER_URL=spark://spark:7077
+  #     - SPARK_WORKLOAD=master
+  #   volumes:
+  #     - ./src:/app
+  #     - ./lib/clickhouse-jdbc-xxx.jar:/opt/bitnami/spark/jars/clickhouse-jdbc-xxx.jar
+  #   networks:
+  #     - my-de-network
+  # Cấu hình thêm cho Airflow
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: minio server /data --console-address ":9001"
+    networks:
+      - my-de-network
+    volumes:
+      - minio_data:/data
+
+  hive-metastore-postgresql:
+    image: postgres:13
+    container_name: hive-metastore-postgresql
+    environment:
+      POSTGRES_USER: hiveuser
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: metastore
+    networks:
+      - my-de-network
+    volumes:
+      - hive_metastore_data:/var/lib/postgresql/data
+
+  hive-metastore:
+    image: apache/hive:3.1.3
+    container_name: hive-metastore
+    # command: /opt/apache/hive/bin/schematool -dbType postgres -initSchema # <<< XÓA DÒNG NÀY
+    environment:
+      SERVICE_NAME: "metastore" # <<< SỬA DÒNG NÀY
+      DB_TYPE: postgres # Sử dụng DB_TYPE thay vì DATABASE_TYPE cho image này
+      POSTGRES_DB_HOST: "hive-metastore-postgresql" # Sử dụng POSTGRES_DB_HOST
+      POSTGRES_USER: "hiveuser"
+      POSTGRES_PASSWORD: "password"
+      POSTGRES_DB: "metastore"
+      WAREHOUSE_DIR: "s3a://nyc-taxi-warehouse/" # Tạm thời comment dòng này để kiểm tra, sẽ cấu hình sau
+    ports:
+      - "9083:9083"
+    depends_on:
+      - hive-metastore-postgresql
+    volumes:
+      # Mount các JAR cần thiết cho S3
+      - ./lib/hadoop-aws-3.3.4.jar:/opt/apache/hive/lib/hadoop-aws-3.3.4.jar
+      - ./lib/aws-java-sdk-bundle-1.12.262.jar:/opt/apache/hive/lib/aws-java-sdk-bundle-1.12.262.jar
+      # Mount file cấu hình hive-site.xml
+      - ./hive-conf/hive-site.xml:/opt/apache/hive/conf/hive-site.xml
+    networks:
+      - my-de-network
+
+  spark-master:
+    image: bitnami/spark:3.3.2
+    container_name: spark-master
+    depends_on:
+      - kafka
+      - zookeeper
+      - minio
+      - hive-metastore
+    environment:
+      SPARK_MODE: master
+      SPARK_MASTER_URL: spark://spark-master:7077
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - "8082:8080" # Spark UI
+      - "7077:7077"
+    networks:
+      - my-de-network
+    volumes:
+      - ./src:/app
+      - ./lib/aws-java-sdk-bundle-1.12.262.jar:/opt/bitnami/spark/jars/aws-java-sdk-bundle-1.12.262.jar
+      - ./lib/hadoop-aws-3.3.4.jar:/opt/bitnami/spark/jars/hadoop-aws-3.3.4.jar
+      - ./hive-exec-3.1.3.jar:/opt/bitnami/spark/jars/hive-exec-3.1.3.jar
+      - ./hive-metastore-3.1.3.jar:/opt/bitnami/spark/jars/hive-metastore-3.1.3.jar
+      - ./lib/iceberg-aws-1.3.0.jar:/opt/bitnami/spark/jars/iceberg-aws-1.3.0.jar
+      - ./lib/iceberg-spark-runtime-3.3_2.12-1.4.2.jar:/opt/bitnami/spark/jars/iceberg-spark-runtime-3.3_2.12-1.2.0.jar
+      - ./lib/iceberg-aws-bundle-1.4.2.jar:/opt/bitnami/spark/jars/iceberg-aws-bundle-1.4.2.jar
+      - ./lib/spark-hive_2.12-3.3.2.jar:/opt/bitnami/spark/jars/spark-hive_2.12-3.3.2.jar
+      # - ./lib/spark-extensions:/opt/bitnami/spark/jars/spark-extensions
+      # - ./hive-conf/hive-site.xml:/opt/bitnami/spark/conf/hive-site.xml
+
+  spark-worker:
+    image: bitnami/spark:3.3.2
+    container_name: spark-worker
+    depends_on:
+      - spark-master
+    environment:
+      SPARK_MODE: worker
+      SPARK_MASTER_URL: spark://spark-master:7077
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    networks:
+      - my-de-network
+    volumes:
+      - ./src:/app
+      - ./lib/aws-java-sdk-bundle-1.12.262.jar:/opt/bitnami/spark/jars/aws-java-sdk-bundle-1.12.262.jar
+      - ./lib/hadoop-aws-3.3.4.jar:/opt/bitnami/spark/jars/hadoop-aws-3.3.4.jar
+      - ./hive-exec-3.1.3.jar:/opt/bitnami/spark/jars/hive-exec-3.1.3.jar
+      - ./hive-metastore-3.1.3.jar:/opt/bitnami/spark/jars/hive-metastore-3.1.3.jar
+      - ./lib/iceberg-aws-1.3.0.jar:/opt/bitnami/spark/jars/iceberg-aws-1.3.0.jar
+      - ./lib/iceberg-spark-runtime-3.3_2.12-1.4.2.jar:/opt/bitnami/spark/jars/iceberg-spark-runtime-3.3_2.12-1.2.0.jar
+      - ./lib/iceberg-aws-bundle-1.4.2.jar:/opt/bitnami/spark/jars/iceberg-aws-bundle-1.4.2.jar
+      - ./lib/spark-hive_2.12-3.3.2.jar:/opt/bitnami/spark/jars/spark-hive_2.12-3.3.2.jar
+      # - ./lib/spark-extensions:/opt/bitnami/spark/jars/spark-extensionsd
+      # - ./hive-conf/hive-site.xml:/opt/bitnami/spark/conf/hive-site.xml
+  
+  airflow-db:
+    image: postgres:13
+    container_name: airflow-db
+    environment:
+      - POSTGRES_USER= postgres
+      - POSTGRES_PASSWORD= postgres
+      - POSTGRES_DB= nyc_taxi
+    networks:
+      - my-de-network
+    volumes:
+      - airflow_db_data:/var/lib/postgresql/data
+
+  airflow-worker:
+    image: apache/airflow:2.6.3-python3.9
+    container_name: airflow-worker
+    depends_on:
+      - airflow-db
+      - spark-master
+      - hive-metastore
+    volumes:
+      - ./src/Dags:/opt/airflow/dags
+      - ./src/Plugins:/opt/airflow/plugins
+    environment:
+      - AIRFLOW_CELERY_BROKER_URL=redis://redis:6379/0
+      - AIRFLOW_CELERY_RESULT_BACKEND=redis://redis:6379/0
+      - AIRFLOW_EXECUTOR=CeleryExecutor
+      - AIRFLOW__CORE__DAGS_FOLDER=/opt/airflow/dags
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+    networks:
+      - my-de-network
+networks:
+  my-de-network:
+    driver: bridge
+volumes:
+  clickhouse_data:
+  minio_data:
+  hive_metastore_data:
+  airflow_db_data:
+ 
+
