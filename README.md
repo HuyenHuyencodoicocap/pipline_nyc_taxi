@@ -1,16 +1,16 @@
 #                                 Các phần đã làm được trong dự án
-Data Ingestion & CDC (Change Data Capture):
+- Data Ingestion & CDC (Change Data Capture):
 Dữ liệu ban đầu về các chuyến taxi NYC được nhập vào cơ sở dữ liệu PostgreSQL. Dự án sử dụng Kafka Connect với Debezium connector để triển khai CDC, cho phép theo dõi và ghi nhận các thay đổi (inserts, updates, deletes) trong thời gian thực. Các thay đổi này sau đó được đẩy lên các topic tương ứng trên Kafka, phục vụ cho các quy trình xử lý downstream. File data_generator.py được sử dụng để tự động tạo ra các thay đổi giả lập ( insert, updates, deletes).
 Data Lake & Storage:
-Dữ liệu đã được ingest được lưu trữ trong một data lake sử dụng MinIO. Tại đây, dữ liệu được tổ chức theo cấu trúc star schema nhằm tối ưu hóa cho các truy vấn phân tích. Các tệp dữ liệu được lưu dưới định dạng Parquet, một định dạng cột (columnar format) hiệu quả, giúp giảm dung lượng lưu trữ và tăng tốc độ đọc dữ liệu.
+- Dữ liệu đã được ingest được lưu trữ trong một data lake sử dụng MinIO. Tại đây, dữ liệu được tổ chức theo cấu trúc star schema nhằm tối ưu hóa cho các truy vấn phân tích. Các tệp dữ liệu được lưu dưới định dạng Parquet, một định dạng cột (columnar format) hiệu quả, giúp giảm dung lượng lưu trữ và tăng tốc độ đọc dữ liệu.
 ETL & Processing:
-Quá trình ETL được thực hiện bằng các script Python trong thư mục src/ETL/streaming_etl_app.py. Dữ liệu từ Kafka được xử lý (thường là stream processing) và chuyển đổi để phù hợp với star schema. 
-SQL & Schema Management:
-Dự án sử dụng các tệp .sql để quản lý schema và thực hiện các truy vấn dữ liệu. Cụ thể:
-schema_trips.sql: Định nghĩa schema cho bảng dữ liệu thô trên postgres.
-gold_zone_schema.sql: Định nghĩa star schema cho Gold Zone
-check_wal.sql: Một script kiểm tra log WAL (Write-Ahead Logging) của PostgreSQL, cần thiết cho quá trình CDC.
-clickhouse.sql: Mô tả schema hoặc các truy vấn liên quan đến ClickHouse, một cơ sở dữ liệu cột có thể được sử dụng cho các tác vụ phân tích OLAP (Online Analytical Processing).
+- Quá trình ETL được thực hiện bằng các script Python trong thư mục src/ETL/streaming_etl_app.py. Dữ liệu từ Kafka được xử lý (thường là stream processing) và chuyển đổi để phù hợp với star         schema. 
+- SQL & Schema Management:
+- Dự án sử dụng các tệp .sql để quản lý schema và thực hiện các truy vấn dữ liệu. Cụ thể:
+  schema_trips.sql: Định nghĩa schema cho bảng dữ liệu thô trên postgres.
+  gold_zone_schema.sql: Định nghĩa star schema cho Gold Zone
+  check_wal.sql: Một script kiểm tra log WAL (Write-Ahead Logging) của PostgreSQL, cần thiết cho quá trình CDC.
+  clickhouse.sql: Mô tả schema hoặc các truy vấn liên quan đến ClickHouse, một cơ sở dữ liệu cột có thể được sử dụng cho các tác vụ phân tích OLAP (Online Analytical Processing).
 
 #                         Các lệnh theo thứ tự để chạy dự án
 
